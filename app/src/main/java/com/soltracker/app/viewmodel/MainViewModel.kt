@@ -11,6 +11,7 @@ import com.soltracker.app.data.model.OrderBook
 import com.soltracker.app.data.model.PriceUiState
 import com.soltracker.app.data.network.BinanceWebSocketClient
 import com.soltracker.app.data.network.RetrofitClient
+import com.soltracker.app.data.pref.AppPreferences
 import com.soltracker.app.data.repository.BinanceRepository
 import com.soltracker.app.notification.NotificationHelper
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 enum class KlineInterval(val label: String, val apiValue: String) {
     HOURLY("1H", "1h"),
@@ -34,6 +39,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val TAG = "MainViewModel"
 
+    val prefs = AppPreferences(application)
     private val repository = BinanceRepository(RetrofitClient.apiService)
     private val webSocketClient = BinanceWebSocketClient()
     private val db = AppDatabase.getInstance(application)
@@ -51,15 +57,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _orderBook = MutableStateFlow<OrderBook?>(null)
     val orderBook: StateFlow<OrderBook?> = _orderBook.asStateFlow()
 
+    // 人民币汇率 (USDT -> CNY)
+    private val _cnyRate = MutableStateFlow(prefs.cnyRate)
+    val cnyRate: StateFlow<Double> = _cnyRate.asStateFlow()
+
+    // K线光标悬停选中的点位
+    private val _selectedKline = MutableStateFlow<Kline?>(null)
+    val selectedKline: StateFlow<Kline?> = _selectedKline.asStateFlow()
+
+    // 代理状态
+    private val _isProxyEnabled = MutableStateFlow(prefs.isProxyEnabled)
+    val isProxyEnabled: StateFlow<Boolean> = _isProxyEnabled.asStateFlow()
+
+    private val _proxyUrl = MutableStateFlow(prefs.proxyUrl)
+    val proxyUrl: StateFlow<String> = _proxyUrl.asStateFlow()
+
     val alerts = db.alertDao().getAllAlerts()
 
     private var klineRefreshJob: Job? = null
 
     init {
+        applyProxySettings()
         startWebSocket()
         loadKlines(KlineInterval.DAILY)
         loadOrderBook()
         startPeriodicRefresh()
+        fetchCnyExchangeRate()
+    }
+
+    private fun applyProxySettings() {
+        val proxy = if (prefs.isProxyEnabled && prefs.proxyUrl.isNotBlank()) prefs.proxyUrl else null
+        RetrofitClient.setBaseUrl(proxy)
+        webSocketClient.setProxyUrl(proxy)
+    }
+
+    fun updateProxy(enabled: Boolean, url: String) {
+        prefs.isProxyEnabled = enabled
+        prefs.proxyUrl = url
+        _isProxyEnabled.value = enabled
+        _proxyUrl.value = url
+        applyProxySettings()
+
+        // 重新连接并刷新
+        webSocketClient.disconnect()
+        webSocketClient.connect()
+        loadKlines(_selectedInterval.value)
+        loadOrderBook()
+    }
+
+    fun setCnyRate(rate: Double) {
+        prefs.cnyRate = rate
+        _cnyRate.value = rate
+    }
+
+    fun selectKline(kline: Kline?) {
+        _selectedKline.value = kline
     }
 
     private fun startWebSocket() {
@@ -95,6 +147,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadKlines(interval: KlineInterval) {
         _selectedInterval.value = interval
+        _selectedKline.value = null
         klineRefreshJob?.cancel()
         klineRefreshJob = viewModelScope.launch {
             val result = when (interval) {
@@ -130,8 +183,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun fetchCnyExchangeRate() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(5, TimeUnit.SECONDS)
+                    .build()
+                val request = Request.Builder()
+                    .url("https://open.er-api.com/v6/latest/USD")
+                    .build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        val json = JSONObject(body)
+                        val rates = json.optJSONObject("rates")
+                        val cny = rates?.optDouble("CNY", 0.0) ?: 0.0
+                        if (cny > 5.0 && cny < 15.0) {
+                            setCnyRate(cny)
+                            Log.d(TAG, "Fetched live USD/CNY rate: $cny")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not fetch dynamic exchange rate, using default: ${e.message}")
+            }
+        }
+    }
+
     private suspend fun checkPriceAlerts(currentPrice: Double) {
         val enabledAlerts = db.alertDao().getEnabledAlerts()
+        val rate = _cnyRate.value
         for (alert in enabledAlerts) {
             val triggered = if (alert.isAbove) {
                 currentPrice >= alert.price
@@ -140,9 +223,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (triggered) {
                 val direction = if (alert.isAbove) "突破" else "跌破"
+                val usdStr = String.format("%.2f", alert.price)
+                val cnyStr = String.format("%.2f", alert.price * rate)
+                val curUsd = String.format("%.2f", currentPrice)
+                val curCny = String.format("%.2f", currentPrice * rate)
                 notificationHelper.sendPriceAlert(
                     "SOL 价格提醒",
-                    "SOL/USDT 已${direction} \$${String.format("%.2f", alert.price)}，当前价格: \$${String.format("%.2f", currentPrice)}"
+                    "SOL/USDT 已${direction} \$$usdStr (≈ ¥$cnyStr)，当前价格: \$$curUsd (≈ ¥$curCny)"
                 )
                 db.alertDao().setAlertEnabled(alert.id, false)
             }

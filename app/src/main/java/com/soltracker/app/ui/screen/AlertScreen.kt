@@ -31,6 +31,7 @@ import java.util.Locale
 fun AlertScreen(viewModel: MainViewModel) {
     val alerts by viewModel.alerts.collectAsState(initial = emptyList())
     val priceState by viewModel.priceState.collectAsState()
+    val cnyRate by viewModel.cnyRate.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -68,12 +69,19 @@ fun AlertScreen(viewModel: MainViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("SOL 当前价格", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "\$${String.format("%.2f", priceState.currentPrice)}",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = if (priceState.priceChangePercent >= 0) BullGreen else BearRed
-                    )
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            "\$${String.format("%.2f", priceState.currentPrice)}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = if (priceState.priceChangePercent >= 0) BullGreen else BearRed
+                        )
+                        Text(
+                            "≈ ¥${String.format("%.2f", priceState.currentPrice * cnyRate)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = (if (priceState.priceChangePercent >= 0) BullGreen else BearRed).copy(alpha = 0.8f)
+                        )
+                    }
                 }
             }
 
@@ -104,6 +112,7 @@ fun AlertScreen(viewModel: MainViewModel) {
                     items(alerts, key = { it.id }) { alert ->
                         AlertCard(
                             alert = alert,
+                            cnyRate = cnyRate,
                             onDelete = { viewModel.deleteAlert(it) },
                             onToggle = { viewModel.toggleAlert(it) }
                         )
@@ -116,6 +125,7 @@ fun AlertScreen(viewModel: MainViewModel) {
     if (showAddDialog) {
         AddAlertDialog(
             currentPrice = priceState.currentPrice,
+            cnyRate = cnyRate,
             onConfirm = { price, isAbove ->
                 viewModel.addAlert(price, isAbove)
                 showAddDialog = false
@@ -128,6 +138,7 @@ fun AlertScreen(viewModel: MainViewModel) {
 @Composable
 fun AlertCard(
     alert: AlertEntity,
+    cnyRate: Double,
     onDelete: (AlertEntity) -> Unit,
     onToggle: (AlertEntity) -> Unit
 ) {
@@ -147,13 +158,13 @@ fun AlertCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Icon(
                     imageVector = if (alert.isAbove) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
@@ -162,13 +173,20 @@ fun AlertCard(
                     modifier = Modifier.size(24.dp)
                 )
                 Column {
-                    Text(
-                        text = "${if (alert.isAbove) "突破" else "跌破"} \$${String.format("%.2f", alert.price)}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (alert.isEnabled) MaterialTheme.colorScheme.onSurface
-                               else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "${if (alert.isAbove) "突破" else "跌破"} \$${String.format("%.2f", alert.price)}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (alert.isEnabled) MaterialTheme.colorScheme.onSurface
+                                   else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                        Text(
+                            text = "(≈ ¥${String.format("%.1f", alert.price * cnyRate)})",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = directionColor.copy(alpha = 0.8f)
+                        )
+                    }
                     Text(
                         text = "创建于 ${dateFormat.format(Date(alert.createdAt))}",
                         style = MaterialTheme.typography.labelSmall,
@@ -204,6 +222,7 @@ fun AlertCard(
 @Composable
 fun AddAlertDialog(
     currentPrice: Double,
+    cnyRate: Double,
     onConfirm: (Double, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -211,11 +230,13 @@ fun AddAlertDialog(
     var isAbove by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    val enteredPrice = priceText.toDoubleOrNull() ?: 0.0
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加价格提醒") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 OutlinedTextField(
                     value = priceText,
                     onValueChange = {
@@ -223,9 +244,13 @@ fun AddAlertDialog(
                         error = null
                     },
                     label = { Text("目标价格 (USDT)") },
+                    supportingText = {
+                        if (enteredPrice > 0) {
+                            Text("≈ ¥${String.format("%.2f", enteredPrice * cnyRate)} CNY")
+                        } else error?.let { Text(it, color = BearRed) }
+                    },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     isError = error != null,
-                    supportingText = error?.let { { Text(it, color = BearRed) } },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text("提醒方向", style = MaterialTheme.typography.labelMedium)

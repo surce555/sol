@@ -16,9 +16,10 @@ import java.util.concurrent.TimeUnit
 class BinanceWebSocketClient {
 
     private val TAG = "BinanceWS"
-    private val WS_BASE = "wss://stream.binance.com:9443/ws"
+    private val DEFAULT_WS_BASE = "wss://stream.binance.com:9443/ws"
     private val SYMBOL = "solusdt"
 
+    private var customWsBase: String? = null
     private var webSocket: WebSocket? = null
     private val gson = Gson()
 
@@ -35,15 +36,38 @@ class BinanceWebSocketClient {
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
 
+    fun setProxyUrl(proxyHttpUrl: String?) {
+        if (proxyHttpUrl.isNullOrBlank()) {
+            customWsBase = null
+        } else {
+            var url = proxyHttpUrl.trim()
+            if (url.endsWith("/")) url = url.substring(0, url.length - 1)
+            // Replace http/https with ws/wss
+            customWsBase = if (url.startsWith("https://")) {
+                "wss://" + url.removePrefix("https://") + "/ws"
+            } else if (url.startsWith("http://")) {
+                "ws://" + url.removePrefix("http://") + "/ws"
+            } else {
+                "wss://$url/ws"
+            }
+        }
+    }
+
     fun connect() {
+        disconnect()
+
+        val base = customWsBase ?: DEFAULT_WS_BASE
+        val url = "$base/${SYMBOL}@ticker"
+        Log.d(TAG, "Connecting to WebSocket: $url")
+
         val request = Request.Builder()
-            .url("$WS_BASE/${SYMBOL}@ticker")
+            .url(url)
             .build()
 
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "WebSocket connected")
+                Log.d(TAG, "WebSocket connected successfully")
                 _connectionChannel.trySend(true)
             }
 
@@ -66,8 +90,10 @@ class BinanceWebSocketClient {
                 Log.e(TAG, "WebSocket failure: ${t.message}")
                 _connectionChannel.trySend(false)
                 // Auto-reconnect after 5 seconds
-                Thread.sleep(5000)
-                connect()
+                try {
+                    Thread.sleep(5000)
+                    connect()
+                } catch (_: Exception) {}
             }
         })
     }
@@ -75,5 +101,6 @@ class BinanceWebSocketClient {
     fun disconnect() {
         webSocket?.close(1000, "User disconnected")
         webSocket = null
+        _connectionChannel.trySend(false)
     }
 }

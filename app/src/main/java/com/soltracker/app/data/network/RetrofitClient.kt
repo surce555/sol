@@ -8,7 +8,8 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
 
-    private const val BASE_URL = "https://api.binance.com/"
+    private const val DEFAULT_BASE_URL = "https://api.binance.com/"
+    private var currentBaseUrl = DEFAULT_BASE_URL
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
@@ -21,9 +22,32 @@ object RetrofitClient {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    val apiService: BinanceApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl(BASE_URL)
+    @Volatile
+    private var _apiService: BinanceApiService? = null
+
+    val apiService: BinanceApiService
+        get() = _apiService ?: synchronized(this) {
+            _apiService ?: buildApiService(currentBaseUrl).also { _apiService = it }
+        }
+
+    fun setBaseUrl(newUrl: String?) {
+        val normalized = if (newUrl.isNullOrBlank()) {
+            DEFAULT_BASE_URL
+        } else {
+            val trimmed = newUrl.trim()
+            if (trimmed.endsWith("/")) trimmed else "$trimmed/"
+        }
+        if (normalized != currentBaseUrl) {
+            currentBaseUrl = normalized
+            synchronized(this) {
+                _apiService = buildApiService(currentBaseUrl)
+            }
+        }
+    }
+
+    private fun buildApiService(baseUrl: String): BinanceApiService {
+        return Retrofit.Builder()
+            .baseUrl(baseUrl)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
