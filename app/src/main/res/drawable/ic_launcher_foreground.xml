@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer glow ring - Solana purple -->
+    <path
+        android:fillColor="#339945FF"
+        android:pathData="M54,18 A36,36 0 1,1 53.99,18 Z" />
+
+    <!-- Coin circle background -->
+    <path
+        android:fillColor="#9945FF"
+        android:pathData="M54,22 A32,32 0 1,1 53.99,22 Z" />
+
+    <!-- Inner coin highlight -->
+    <path
+        android:fillColor="#7B35D9"
+        android:pathData="M54,26 A28,28 0 1,1 53.99,26 Z" />
+
+    <!-- SOL letter S shape (stylized) -->
+    <!-- Top bar -->
+    <path
+        android:fillColor="#14F195"
+        android:pathData="M42,39 L62,39 Q66,39 66,43 Q66,47 62,47 L46,47 Q42,47 42,51 Q42,55 46,55 L62,55 Q66,55 66,59 Q66,63 62,63 L42,63 Q42,59 46,59 L60,59 Q62,59 62,57 Q62,55 60,55 L44,55 Q40,55 40,51 Q40,47 44,47 L60,47 Q62,47 62,45 Q62,43 60,43 L42,43 Z" />
+
+    <!-- Solana gradient bar lines (decorative) -->
+    <path
+        android:fillColor="#14F195"
+        android:alpha="0.6"
+        android:pathData="M36,71 L72,71 L70,75 L34,75 Z" />
+    <path
+        android:fillColor="#9945FF"
+        android:alpha="0.6"
+        android:pathData="M34,77 L70,77 L68,81 L32,81 Z" />
+</vector>
