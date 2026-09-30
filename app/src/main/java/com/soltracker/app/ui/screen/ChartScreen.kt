@@ -140,8 +140,8 @@ fun CandlestickChartView(
 ) {
     val bullColor = BullGreen.toArgb()
     val bearColor = BearRed.toArgb()
-    val gridColor = AndroidColor.argb(40, 180, 180, 220)
-    val textColor = AndroidColor.argb(160, 200, 200, 240)
+    val chartGridColor = AndroidColor.argb(40, 180, 180, 220)
+    val chartTextColor = AndroidColor.argb(160, 200, 200, 240)
 
     val dateFormat = when (interval) {
         KlineInterval.HOURLY, KlineInterval.FOUR_HOUR -> SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
@@ -168,16 +168,16 @@ fun CandlestickChartView(
                 xAxis.apply {
                     position = XAxis.XAxisPosition.BOTTOM
                     setDrawGridLines(true)
-                    gridColor = gridColor
-                    textColor = textColor
+                    gridColor = chartGridColor
+                    textColor = chartTextColor
                     textSize = 9f
                     labelRotationAngle = -30f
                     granularity = 1f
                 }
                 axisRight.apply {
                     setDrawGridLines(true)
-                    gridColor = gridColor
-                    textColor = textColor
+                    gridColor = chartGridColor
+                    textColor = chartTextColor
                     textSize = 9f
                 }
                 axisLeft.isEnabled = false
@@ -223,8 +223,8 @@ fun VolumeBarChartView(
 ) {
     val bullColor = BullGreen.copy(alpha = 0.7f).toArgb()
     val bearColor = BearRed.copy(alpha = 0.7f).toArgb()
-    val gridColor = AndroidColor.argb(30, 180, 180, 220)
-    val textColor = AndroidColor.argb(120, 200, 200, 240)
+    val chartGridColor = AndroidColor.argb(30, 180, 180, 220)
+    val chartTextColor = AndroidColor.argb(120, 200, 200, 240)
 
     AndroidView(
         modifier = modifier,
@@ -242,12 +242,12 @@ fun VolumeBarChartView(
                     position = XAxis.XAxisPosition.BOTTOM
                     setDrawGridLines(false)
                     setDrawLabels(false)
-                    textColor = textColor
+                    textColor = chartTextColor
                 }
                 axisRight.apply {
                     setDrawGridLines(true)
-                    gridColor = gridColor
-                    textColor = textColor
+                    gridColor = chartGridColor
+                    textColor = chartTextColor
                     textSize = 8f
                     setLabelCount(3, true)
                     setPosition(YAxis.YAxisLabelPosition.OUTSIDE_CHART)
@@ -257,7 +257,6 @@ fun VolumeBarChartView(
         },
         update = { chart ->
             val entries = klines.mapIndexed { i, k ->
-                val isUp = k.close >= k.open
                 BarEntry(i.toFloat(), k.volume.toFloat())
             }
             val colors = klines.map { k -> if (k.close >= k.open) bullColor else bearColor }
