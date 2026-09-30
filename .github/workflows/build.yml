@@ -113,11 +113,28 @@ jobs:
           ls -lh *.apk
 
       # ── Nightly: push main → 更新 latest 预发布 ──
-      - name: 🗑️ Delete old latest release
+      - name: 🗑️ Thoroughly clean up old 'latest' release & tag
         if: steps.ver.outputs.is_prerelease == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          # 1. 找出所有 tag_name == 'latest' 的 release（包括 draft）
+          IDS=$(gh api "repos/$REPO/releases" \
+            --jq '[.[] | select(.tag_name=="latest") | .id] | .[]' 2>/dev/null || true)
+
+          # 2. 逐个删除
+          for ID in $IDS; do
+            echo "  Deleting release ID $ID ..."
+            gh api -X DELETE "repos/$REPO/releases/$ID" || true
+          done
+
+          # 3. 删除 'latest' tag ref（标签本身）
+          gh api -X DELETE "repos/$REPO/git/refs/tags/latest" 2>/dev/null || true
+
+          echo "✅ Cleanup done. Waiting for GitHub API to propagate..."
+          sleep 5
 
       - name: 🌙 Publish Nightly (latest pre-release)
         if: steps.ver.outputs.is_prerelease == 'true'
