@@ -600,16 +600,32 @@ export default {
         },
       });
     }
+    // 根路径健康检查 (避免浏览器访问报币安403)
+    if (url.pathname === '/' || url.pathname === '') {
+      return new Response(JSON.stringify({ status: 'online', message: 'SOL Tracker 代理运行正常' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    }
     const upgradeHeader = request.headers.get('Upgrade');
     if (upgradeHeader && upgradeHeader.toLowerCase() === 'websocket') {
       const targetWsUrl = `https://${'$'}{BINANCE_WS_HOST}${'$'}{url.pathname}${'$'}{url.search}`;
       return fetch(targetWsUrl, { headers: request.headers });
     }
     const targetApiUrl = `https://${'$'}{BINANCE_REST_HOST}${'$'}{url.pathname}${'$'}{url.search}`;
+    const newHeaders = new Headers();
+    for (const [key, value] of request.headers.entries()) {
+      const l = key.toLowerCase();
+      if (!l.startsWith('cf-') && l !== 'x-forwarded-for' && l !== 'x-real-ip') {
+        newHeaders.set(key, value);
+      }
+    }
+    newHeaders.set('Host', BINANCE_REST_HOST);
+    newHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
     const newRequest = new Request(targetApiUrl, {
       method: request.method,
-      headers: request.headers,
-      body: request.body,
+      headers: newHeaders,
+      body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : null,
     });
     const response = await fetch(newRequest);
     const newResponse = new Response(response.body, response);
