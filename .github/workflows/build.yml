@@ -46,10 +46,8 @@ jobs:
 
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             VER_NAME="${GITHUB_REF#refs/tags/}"
-            IS_PRERELEASE=false
           else
-            VER_NAME="nightly-${DATE}-${SHORT_SHA}"
-            IS_PRERELEASE=true
+            VER_NAME="v1.0.0-${SHORT_SHA}"
           fi
 
           echo "ver_name=$VER_NAME"           >> $GITHUB_OUTPUT
@@ -120,86 +118,47 @@ jobs:
           path: "*.apk"
           retention-days: 30
 
-      # ── 使用官方 gh CLI 发布 Release（解决 third-party action tag conflict 错误）──
-      - name: 🚀 Publish Release via GitHub CLI
+      # ── 使用官方 gh CLI 发布公开 Release ──
+      - name: 🚀 Publish Public Release via GitHub CLI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IS_PRERELEASE: ${{ steps.ver.outputs.is_prerelease }}
           VER_NAME: ${{ steps.ver.outputs.ver_name }}
           REL_APK: ${{ steps.apk.outputs.release_apk }}
           DBG_APK: ${{ steps.apk.outputs.debug_apk }}
-          SHORT_SHA: ${{ steps.ver.outputs.short_sha }}
         run: |
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            TAG="latest"
-            TITLE="🌙 SOL Tracker Nightly · $VER_NAME"
-            BODY=$(cat <<EOF
-          ## 🌙 Nightly 自动构建
+          TAG="${VER_NAME}"
+          TITLE="🪙 SOL Tracker ${VER_NAME}"
+          BODY=$(cat <<EOF
+          ## 🪙 SOL Tracker ${VER_NAME} (Android APK)
 
-          | 字段 | 值 |
-          |------|---|
-          | 📅 构建时间 | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |
-          | 🔖 Commit | $SHORT_SHA |
-
-          ### 📱 安装说明
-          1. 下载下方 **SOLTracker-*-release.apk**（推荐）
-          2. 手机开启「允许安装未知来源应用」后安装
-
-          ### ✨ 功能特性
-          - 📊 SOL/USDT 实时价格（Binance WebSocket 毫秒级推送）
-          - 📈 多周期K线图：1H / 4H / 日K / 周K / 月K + 成交量柱状图
-          - 📐 MA7 / MA25 / MA99 均线
-          - 📖 买卖深度盘口 Top 5
-          - 🔔 价格突破/跌破通知提醒
-          - 🌙 深色主题（Solana 品牌配色）
-
-          > ⚠️ Nightly 为主分支自动化编译包，稳定版请查看正式 Release。
-          EOF
-          )
-
-            # 如果 latest release 已存在，使用 --clobber 直接覆盖上传文件；如果不存在则新建
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              echo "Release '$TAG' already exists. Updating release notes and overwriting APK files..."
-              gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
-              gh release upload "$TAG" "$REL_APK" "$DBG_APK" --clobber
-            else
-              echo "Creating new release '$TAG'..."
-              gh release create "$TAG" "$REL_APK" "$DBG_APK" --title "$TITLE" --notes "$BODY" --prerelease
-            fi
-            echo "✅ Nightly release updated successfully!"
-
-          else
-            TAG="$VER_NAME"
-            TITLE="🪙 SOL Tracker $VER_NAME"
-            BODY=$(cat <<EOF
-          ## 🪙 SOL Tracker $VER_NAME
-
-          ### 📦 下载
-          | APK | 说明 |
-          |-----|------|
-          | \`$REL_APK\` | ✅ 推荐，混淆优化，体积小 |
-          | \`$DBG_APK\` | 🔧 调试版 |
+          ### 📦 直接下载安装包
+          - ⬇️ **[推荐下载] 优化正式版：\`${REL_APK}\`**
+          - ⬇️ **[备用下载] 调试日志版：\`${DBG_APK}\`**
 
           ### 📱 安装方式
-          1. 下载 release APK
-          2. Android → 设置 → 安全 → 开启「允许未知来源」
-          3. 打开 APK 完成安装
+          1. 点击下方 Assets 区域的 \`${REL_APK}\` 下载到安卓手机
+          2. 打开文件，开启「允许安装未知来源应用」
+          3. 点击安装即可启动运行
 
-          ### ✨ 功能特性
-          - 📊 实时价格（Binance WebSocket）
-          - 📈 K线图：1H / 4H / 日K / 周K / 月K
-          - 📉 成交量柱 + MA7/MA25/MA99
-          - 📖 深度盘口 Top 5
-          - 🔔 价格提醒推送
-          - 🌙 Solana 深色主题
+          ### ✨ 核心功能
+          - 📊 **实时价格**：Binance WebSocket 毫秒级推流
+          - 📈 **多周期K线**：1小时、4小时、日K、周K、月K线图
+          - 📉 **成交量图**：与K线联动，牛红熊绿
+          - 📐 **均线指标**：MA7 / MA25 / MA99
+          - 📖 **深度盘口**：买卖盘 Top 5 挂单实时监控
+          - 🔔 **价格提醒**：自定义突破/跌破通知推送
+          - 🌙 **深色主题**：Solana 原生品牌配色设计
           EOF
           )
 
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              gh release edit "$TAG" --title "$TITLE" --notes "$BODY"
-              gh release upload "$TAG" "$REL_APK" "$DBG_APK" --clobber
-            else
-              gh release create "$TAG" "$REL_APK" "$DBG_APK" --title "$TITLE" --notes "$BODY"
-            fi
-            echo "✅ Versioned release created successfully!"
+          # 如果 release 已经存在，更新内容并覆盖上传 APK；否则新建并设为 latest
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release '$TAG' exists. Updating..."
+            gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --latest
+            gh release upload "$TAG" "$REL_APK" "$DBG_APK" --clobber
+          else
+            echo "Creating new release '$TAG'..."
+            gh release create "$TAG" "$REL_APK" "$DBG_APK" --title "$TITLE" --notes "$BODY" --latest
           fi
+          echo "✅ Release successfully published and marked as Latest!"
+
