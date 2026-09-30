@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SOL Tracker</string>
+    <string name="sol_usdt">SOL/USDT</string>
+    <string name="real_time_price">实时价格</string>
+    <string name="daily_k">日K线</string>
+    <string name="monthly_k">月K线</string>
+    <string name="price_alert">价格提醒</string>
+    <string name="connected">已连接</string>
+    <string name="disconnected">断开连接</string>
+    <string name="add_alert">添加提醒</string>
+    <string name="target_price">目标价格</string>
+    <string name="confirm">确认</string>
+    <string name="cancel">取消</string>
+    <string name="above">上涨突破</string>
+    <string name="below">下跌跌破</string>
+    <string name="volume_24h">24H 成交量</string>
+    <string name="high_24h">24H 最高</string>
+    <string name="low_24h">24H 最低</string>
+</resources>
