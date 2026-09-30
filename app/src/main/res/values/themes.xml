@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.SOLTracker" parent="Theme.Material3.DayNight.NoActionBar" />
+    <!-- Base theme for the Activity window: just hides the ActionBar.
+         All real Material3 / dark-mode theming is handled by Jetpack Compose. -->
+    <style name="Theme.SOLTracker" parent="android:Theme.Material.NoActionBar" />
 </resources>
