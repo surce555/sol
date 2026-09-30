@@ -1,39 +1,24 @@
-name: 🚀 Build & Auto-Release SOL Tracker
+name: 🚀 Build & Publish APK
 
 on:
   push:
     branches: [main, master]
     tags: ['v*']
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
-    inputs:
-      release_type:
-        description: '手动发布类型'
-        required: false
-        default: 'latest'
-        type: choice
-        options: [latest, patch, minor, major]
 
-# 同一分支同时只保留一个运行实例，避免并发构建浪费资源
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ─────────────────────────────────────────
-  # JOB 1: 构建 & 质量检查（所有触发都执行）
-  # ─────────────────────────────────────────
-  build:
-    name: 🔨 Build & Check
+  build-and-publish:
+    name: 🔨 Build APK & Publish Release
     runs-on: ubuntu-latest
-    outputs:
-      version_name: ${{ steps.version.outputs.name }}
-      version_code: ${{ steps.version.outputs.code }}
-      short_sha:    ${{ steps.version.outputs.short_sha }}
+    permissions:
+      contents: write
 
     steps:
-      - name: 📥 Checkout code (full history for versioning)
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -51,67 +36,41 @@ jobs:
       - name: 📋 Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # 计算版本号: tag → v1.2.3 / main → nightly-20240930-ab12cd34
-      - name: 🔢 Compute version info
-        id: version
+      # ── 计算版本号 ──────────────────────────────
+      - name: 🔢 Compute version
+        id: ver
         run: |
           SHORT_SHA=$(git rev-parse --short HEAD)
           DATE=$(date +'%Y%m%d')
           COMMIT_COUNT=$(git rev-list --count HEAD)
 
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-            NAME="$TAG"
-            CODE=$COMMIT_COUNT
+            VER_NAME="${GITHUB_REF#refs/tags/}"
+            IS_PRERELEASE=false
           else
-            NAME="nightly-${DATE}-${SHORT_SHA}"
-            CODE=$COMMIT_COUNT
+            VER_NAME="nightly-${DATE}-${SHORT_SHA}"
+            IS_PRERELEASE=true
           fi
 
-          echo "name=$NAME"      >> $GITHUB_OUTPUT
-          echo "code=$CODE"      >> $GITHUB_OUTPUT
-          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
-          echo "📦 Version: $NAME (code: $CODE)"
+          echo "ver_name=$VER_NAME"           >> $GITHUB_OUTPUT
+          echo "ver_code=$COMMIT_COUNT"        >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA"          >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE"  >> $GITHUB_OUTPUT
+          echo "📦 Version: $VER_NAME (code: $COMMIT_COUNT)"
 
-      - name: 🔍 Run lint checks
-        run: ./gradlew lint --continue
-
-      - name: 📊 Upload lint report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lint-report-${{ steps.version.outputs.short_sha }}
-          path: app/build/reports/lint-results-*.html
-          retention-days: 7
-
-      - name: 🧪 Run unit tests
-        run: ./gradlew test
-
-      - name: 📊 Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-report-${{ steps.version.outputs.short_sha }}
-          path: app/build/reports/tests/
-          retention-days: 7
-
-      - name: 🏗️ Build Debug APK
-        run: |
-          ./gradlew assembleDebug \
-            -Pandroid.versionName=${{ steps.version.outputs.name }} \
-            -Pandroid.versionCode=${{ steps.version.outputs.version_code || 1 }}
-
-      - name: 🔑 Decode Keystore (for release builds)
+      # ── 可选：签名 keystore ───────────────────
+      - name: 🔑 Decode keystore (optional)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
-            echo "✅ Keystore decoded."
+            echo "✅ Keystore ready."
           else
-            echo "⚠️  No keystore configured — release APK will be unsigned."
+            echo "ℹ️  No keystore — APK will be unsigned."
           fi
 
+      # ── 编译 Release APK ──────────────────────
       - name: 🏗️ Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -128,167 +87,90 @@ jobs:
             ./gradlew assembleRelease
           fi
 
-      # 重命名 APK，加入版本号方便识别
+      # ── 也编译 Debug APK（可选下载用）────────
+      - name: 🏗️ Build Debug APK
+        run: ./gradlew assembleDebug
+
+      # ── 重命名，加入版本号 ────────────────────
       - name: ✏️ Rename APKs
+        id: apk
         run: |
-          VERSION="${{ steps.version.outputs.name }}"
-          DEBUG_SRC=$(find app/build/outputs/apk/debug   -name "*.apk" | head -1)
-          REL_SRC=$(find  app/build/outputs/apk/release  -name "*.apk" | head -1)
+          VER="${{ steps.ver.outputs.ver_name }}"
 
-          DEBUG_DST="app/build/outputs/apk/debug/SOLTracker-${VERSION}-debug.apk"
-          REL_DST="app/build/outputs/apk/release/SOLTracker-${VERSION}-release.apk"
+          REL=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          DBG=$(find app/build/outputs/apk/debug   -name "*.apk" | head -1)
 
-          [ -f "$DEBUG_SRC" ] && mv "$DEBUG_SRC" "$DEBUG_DST" && echo "Debug: $DEBUG_DST"
-          [ -f "$REL_SRC"   ] && mv "$REL_SRC"   "$REL_DST"  && echo "Release: $REL_DST"
+          REL_OUT="SOLTracker-${VER}-release.apk"
+          DBG_OUT="SOLTracker-${VER}-debug.apk"
 
-      # 将 APK 作为工件保留，所有触发都保留
-      - name: 📦 Upload Debug APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SOLTracker-${{ steps.version.outputs.name }}-debug
-          path: app/build/outputs/apk/debug/SOLTracker-*.apk
-          retention-days: 30
+          mv "$REL" "$REL_OUT"
+          mv "$DBG" "$DBG_OUT"
 
-      - name: 📦 Upload Release APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SOLTracker-${{ steps.version.outputs.name }}-release
-          path: app/build/outputs/apk/release/SOLTracker-*.apk
-          retention-days: 90
+          echo "release_apk=$REL_OUT" >> $GITHUB_OUTPUT
+          echo "debug_apk=$DBG_OUT"   >> $GITHUB_OUTPUT
+          echo "✅ Release APK: $REL_OUT"
+          echo "✅ Debug   APK: $DBG_OUT"
+          ls -lh *.apk
 
-  # ─────────────────────────────────────────
-  # JOB 2: 自动 Nightly 发布（push 到 main/master）
-  # 每次 main 分支有新提交，自动更新 "latest" pre-release
-  # ─────────────────────────────────────────
-  nightly-release:
-    name: 🌙 Auto Nightly Release
-    runs-on: ubuntu-latest
-    needs: build
-    # 仅在 push 到主分支时运行（不含 PR、不含 tag）
-    if: |
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
-      !startsWith(github.ref, 'refs/tags/')
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
-
-      - name: 📥 Download Release APK artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: SOLTracker-${{ needs.build.outputs.version_name }}-release
-          path: apk/
-
-      - name: 📥 Download Debug APK artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: SOLTracker-${{ needs.build.outputs.version_name }}-debug
-          path: apk/
-
-      - name: 🗑️ Delete old "latest" pre-release (if exists)
+      # ── Nightly: push main → 更新 latest 预发布 ──
+      - name: 🗑️ Delete old latest release
+        if: steps.ver.outputs.is_prerelease == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 删除旧的 latest tag 和 release（忽略不存在的情况）
-          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+        run: gh release delete latest --yes --cleanup-tag 2>/dev/null || true
 
-      - name: 🌙 Create / Update "latest" pre-release
+      - name: 🌙 Publish Nightly (latest pre-release)
+        if: steps.ver.outputs.is_prerelease == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: "🌙 SOL Tracker Nightly · ${{ needs.build.outputs.version_name }}"
+          name: "🌙 SOL Tracker Nightly · ${{ steps.ver.outputs.ver_name }}"
           prerelease: true
           make_latest: false
           body: |
-            ## 🌙 自动构建 · Nightly Build
-
-            > ⚠️ 此版本由每次 `main` 分支提交自动构建，非稳定版本。  
-            > 稳定版请前往 [Releases](../../releases) 查看正式版本。
+            ## 🌙 Nightly 自动构建
 
             | 字段 | 值 |
             |------|---|
             | 📅 构建时间 | ${{ github.event.head_commit.timestamp }} |
-            | 🔖 Commit | [`${{ needs.build.outputs.short_sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}) |
+            | 🔖 Commit | [`${{ steps.ver.outputs.short_sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}) |
             | 💬 提交信息 | ${{ github.event.head_commit.message }} |
 
-            ### 📱 安装方式
-            1. 下载下方 `release` APK（推荐）或 `debug` APK
-            2. 手机开启「允许安装未知来源应用」
-            3. 安装即可
+            ### 📱 安装说明
+            1. 下载 **SOLTracker-*-release.apk**（推荐）
+            2. 手机开启「允许安装未知来源应用」后安装
 
             ### ✨ 功能
-            - 📊 SOL/USDT 实时价格（Binance WebSocket 毫秒级推送）
-            - 📈 K线图: 1H / 4H / 日K / 周K / 月K + 成交量
-            - 📐 MA7 / MA25 / MA99 均线指标
-            - 📖 实时买卖深度盘口 (Top 5)
-            - 🔔 自定义价格突破/跌破提醒 (推送通知)
-            - 🌙 深色主题（Solana 品牌配色）
+            - 📊 SOL/USDT 实时价格（Binance WebSocket 推送）
+            - 📈 K线图：1H / 4H / 日K / 周K / 月K + 成交量柱
+            - 📐 MA7 / MA25 / MA99 均线
+            - 📖 买卖深度盘口 Top 5
+            - 🔔 价格突破/跌破提醒（推送通知）
+            - 🌙 深色主题（Solana 品牌色）
 
-            ---
-            ⚠️ *本工具仅供行情参考，不构成投资建议。*
-          files: apk/*.apk
+            > ⚠️ Nightly 为自动构建，非正式版本。稳定版请看 [Releases](../../releases)。
+          files: |
+            ${{ steps.apk.outputs.release_apk }}
+            ${{ steps.apk.outputs.debug_apk }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ─────────────────────────────────────────
-  # JOB 3: 正式版发布（push tag v* 时触发）
-  # ─────────────────────────────────────────
-  versioned-release:
-    name: 🎉 Versioned Release
-    runs-on: ubuntu-latest
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: 📥 Download Release APK
-        uses: actions/download-artifact@v4
-        with:
-          name: SOLTracker-${{ needs.build.outputs.version_name }}-release
-          path: apk/
-
-      - name: 📥 Download Debug APK
-        uses: actions/download-artifact@v4
-        with:
-          name: SOLTracker-${{ needs.build.outputs.version_name }}-debug
-          path: apk/
-
-      # 自动生成 CHANGELOG（本次 tag 与上一个 tag 之间的提交）
+      # ── Versioned: push tag v* → 正式发布 ────
       - name: 📝 Generate changelog
+        if: steps.ver.outputs.is_prerelease == 'false'
         id: changelog
         run: |
-          CURRENT_TAG="${{ github.ref_name }}"
-          PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || echo "")
-
-          if [ -n "$PREV_TAG" ]; then
-            RANGE="${PREV_TAG}..${CURRENT_TAG}"
-            echo "📋 Changes since $PREV_TAG:"
-            LOG=$(git log "$RANGE" --pretty=format:"- %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" | head -50)
+          TAG="${{ github.ref_name }}"
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            LOG=$(git log "${PREV}..${TAG}" --pretty=format:"- %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" | head -50)
           else
             LOG=$(git log --pretty=format:"- %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" | head -20)
           fi
+          { echo 'log<<EOF'; echo "$LOG"; echo 'EOF'; } >> $GITHUB_OUTPUT
 
-          # 多行输出需要使用 EOF 语法
-          {
-            echo 'log<<EOF'
-            echo "$LOG"
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
-
-          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
-
-      - name: 🎉 Create GitHub Release
+      - name: 🎉 Publish Versioned Release
+        if: steps.ver.outputs.is_prerelease == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -298,43 +180,31 @@ jobs:
           body: |
             ## 🪙 SOL Tracker ${{ github.ref_name }}
 
-            **Solana 虚拟币实时价格监控 · Android 工具**
-
             ### 📦 下载
-
             | APK | 说明 |
             |-----|------|
-            | `SOLTracker-*-release.apk` | ✅ **推荐** — 混淆优化，体积更小 |
-            | `SOLTracker-*-debug.apk`   | 🔧 调试版，含日志输出 |
-
-            ### ✨ 功能特性
-            - 📊 **实时价格** — Binance WebSocket 毫秒级推送
-            - 📈 **多周期K线** — 1H / 4H / 日K / 周K / 月K
-            - 📉 **成交量图** — 牛熊配色柱状图
-            - 📐 **均线指标** — MA7 / MA25 / MA99
-            - 📖 **深度盘口** — 买卖各 Top 5 实时刷新
-            - 🔔 **价格提醒** — 自定义突破/跌破推送通知
-            - 🌙 **深色主题** — Solana 品牌色（紫 #9945FF · 绿 #14F195）
+            | `SOLTracker-*-release.apk` | ✅ 推荐，混淆优化，体积小 |
+            | `SOLTracker-*-debug.apk`   | 🔧 调试版 |
 
             ### 📋 本版本更新
-
             ${{ steps.changelog.outputs.log }}
 
             ### 📱 安装方式
             1. 下载 `release` APK
-            2. Android 设置 → 安全 → 开启「允许安装未知来源」
-            3. 打开下载的 APK 安装
+            2. Android → 设置 → 安全 → 开启「允许未知来源」
+            3. 安装 APK
 
-            ---
-            > ⚠️ 本工具仅供行情数据参考，**不构成任何投资建议**。
-          files: apk/*.apk
+            ### ✨ 功能特性
+            - 📊 实时价格（Binance WebSocket）
+            - 📈 K线图：1H / 4H / 日K / 周K / 月K
+            - 📉 成交量柱 + MA7/MA25/MA99
+            - 📖 深度盘口 Top 5
+            - 🔔 价格提醒推送
+            - 🌙 Solana 深色主题
+
+            > ⚠️ 仅供行情参考，不构成投资建议。
+          files: |
+            ${{ steps.apk.outputs.release_apk }}
+            ${{ steps.apk.outputs.debug_apk }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 同时把 "latest" release 也更新指向这个正式版
-      - name: 🏷️ Update "latest" tag to this release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          echo "✅ Old 'latest' pre-release removed (new versioned release is now latest)"
