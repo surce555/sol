@@ -2,7 +2,7 @@
  * Cloudflare Worker 币安 API & WebSocket 代理加速脚本 (优化增强版)
  */
 
-const BINANCE_REST_HOST = 'api.binance.com';
+const BINANCE_REST_HOST = 'data-api.binance.vision';
 const BINANCE_WS_HOST = 'stream.binance.com:9443';
 
 export default {
