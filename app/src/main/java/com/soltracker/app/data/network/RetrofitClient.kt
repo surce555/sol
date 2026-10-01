@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
 
-    private const val DEFAULT_BASE_URL = "https://api.binance.com/"
+    private const val DEFAULT_BASE_URL = "https://data-api.binance.vision/"
     private var currentBaseUrl = DEFAULT_BASE_URL
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
