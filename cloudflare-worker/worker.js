@@ -1,57 +1,49 @@
 /**
- * Cloudflare Worker - 最终版
- * REST API → 转发给 Vercel 中继（AWS IP，不被币安封）
+ * Cloudflare Worker - 稳定版
  * WebSocket → 直连 stream.binance.com
+ * REST API → 由 App 直接访问 data-api.binance.vision，无需经过此 Worker
+ * （此 Worker 仅作 WebSocket 代理使用）
  */
-
-// ⬇️ 部署 Vercel 项目后，把 Vercel 的域名填在这里
-const VERCEL_REST_PROXY = 'https://YOUR_VERCEL_APP.vercel.app';
-
-const BINANCE_WS_HOST = 'stream.binance.com:9443';
-
 export default {
   async fetch(request) {
     const url = new URL(request.url);
 
-    // CORS 预检
     if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': '*',
-        },
-      });
+      return new Response(null, { headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+      }});
     }
 
     // 健康检查
     if (url.pathname === '/' || url.pathname === '') {
-      return new Response(JSON.stringify({ status: 'online', vercel: VERCEL_REST_PROXY }), {
+      return new Response(JSON.stringify({ status: 'online', time: new Date().toISOString() }), {
         status: 200,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       });
     }
 
-    // WebSocket → 直连币安（正常工作，保持不变）
+    // WebSocket → 直连币安流数据（此路径正常工作）
     if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
-      return fetch(`https://${BINANCE_WS_HOST}${url.pathname}${url.search}`, request);
+      return fetch(`https://stream.binance.com:9443${url.pathname}${url.search}`, request);
     }
 
-    // REST API → 转发到 Vercel 中继（绕过币安对 Cloudflare IP 的封锁）
-    const targetUrl = `${VERCEL_REST_PROXY}${url.pathname}${url.search}`;
-
+    // REST API → 转发到 data-api.binance.vision（干净请求头）
     try {
-      const response = await fetch(targetUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
-
+      const response = await fetch(
+        `https://data-api.binance.vision${url.pathname}${url.search}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+        }
+      );
       const newResponse = new Response(response.body, response);
       newResponse.headers.set('Access-Control-Allow-Origin', '*');
       return newResponse;
-
     } catch (err) {
       return new Response(JSON.stringify({ error: err.message }), {
         status: 502,
