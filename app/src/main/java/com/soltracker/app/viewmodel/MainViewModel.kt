@@ -40,7 +40,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "MainViewModel"
 
     val prefs = AppPreferences(application)
-    private val repository = BinanceRepository(RetrofitClient.apiService)
+    private val repository = BinanceRepository()
     private val webSocketClient = BinanceWebSocketClient()
     private val db = AppDatabase.getInstance(application)
     private val notificationHelper = NotificationHelper(application)

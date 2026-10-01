@@ -8,8 +8,12 @@ import com.soltracker.app.data.model.TickerPrice
 import com.soltracker.app.data.network.BinanceApiService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.soltracker.app.data.network.RetrofitClient
 
-class BinanceRepository(private val apiService: BinanceApiService) {
+class BinanceRepository {
+
+    private val apiService: BinanceApiService
+        get() = RetrofitClient.apiService
 
     suspend fun getCurrentPrice(): Result<TickerPrice> = withContext(Dispatchers.IO) {
         runCatching { apiService.getPrice() }
