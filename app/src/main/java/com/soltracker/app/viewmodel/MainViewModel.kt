@@ -87,7 +87,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun applyProxySettings() {
         val proxy = if (prefs.isProxyEnabled && prefs.proxyUrl.isNotBlank()) prefs.proxyUrl else null
-        RetrofitClient.setBaseUrl(proxy)
+        // REST API 永远直连 data-api.binance.vision（国内可直接访问，代理反而会被币安封）
+        RetrofitClient.setBaseUrl(null)
+        // 只有 WebSocket 走代理（stream.binance.com 在国内被墙）
         webSocketClient.setProxyUrl(proxy)
     }
 
