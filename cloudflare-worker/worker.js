@@ -26,7 +26,20 @@ export default {
 
     // WebSocket → 直连币安流数据（此路径正常工作）
     if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
-      return fetch(`https://stream.binance.com:9443${url.pathname}${url.search}`, request);
+      // 使用 443 端口（比 9443 穿透性更好），清理请求头避免干扰握手
+      const wsHeaders = {
+        'Host': 'stream.binance.com',
+        'Upgrade': 'websocket',
+        'Connection': 'Upgrade',
+        'Sec-WebSocket-Version': request.headers.get('Sec-WebSocket-Version') ?? '13',
+        'Sec-WebSocket-Key': request.headers.get('Sec-WebSocket-Key') ?? '',
+        'Sec-WebSocket-Extensions': request.headers.get('Sec-WebSocket-Extensions') ?? '',
+        'User-Agent': 'okhttp/4.12.0',
+      };
+      return fetch(
+        `https://stream.binance.com:443${url.pathname}${url.search}`,
+        { headers: wsHeaders }
+      );
     }
 
     // REST API → 转发到 data-api.binance.vision（干净请求头）
