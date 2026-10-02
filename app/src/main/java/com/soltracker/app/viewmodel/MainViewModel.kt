@@ -83,6 +83,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadOrderBook()
         startPeriodicRefresh()
         fetchCnyExchangeRate()
+        startPriceFallbackPolling() // WebSocket 断连时轮询兜底
     }
 
     private fun applyProxySettings() {
@@ -181,6 +182,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             while (true) {
                 delay(30_000) // Refresh order book every 30s
                 loadOrderBook()
+            }
+        }
+    }
+
+    /**
+     * 当 WebSocket 断连时（如联通网络无法连接 stream.binance.com），
+     * 每 2 秒直接轮询 data-api.binance.vision 获取最新价格（国内直连可用）
+     */
+    private fun startPriceFallbackPolling() {
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(2000)
+                if (!_priceState.value.isConnected) {
+                    repository.get24hTicker().onSuccess { ticker ->
+                        val price = ticker.lastPrice.toDoubleOrNull() ?: return@onSuccess
+                        _priceState.update {
+                            it.copy(
+                                currentPrice = price,
+                                priceChange = ticker.priceChange.toDoubleOrNull() ?: it.priceChange,
+                                priceChangePercent = ticker.priceChangePercent.toDoubleOrNull() ?: it.priceChangePercent,
+                                highPrice = ticker.highPrice.toDoubleOrNull() ?: it.highPrice,
+                                lowPrice = ticker.lowPrice.toDoubleOrNull() ?: it.lowPrice,
+                                volume = ticker.volume.toDoubleOrNull() ?: it.volume,
+                                quoteVolume = ticker.quoteVolume.toDoubleOrNull() ?: it.quoteVolume,
+                                bidPrice = ticker.bidPrice.toDoubleOrNull() ?: it.bidPrice,
+                                askPrice = ticker.askPrice.toDoubleOrNull() ?: it.askPrice,
+                                isLoading = false,
+                            )
+                        }
+                        checkPriceAlerts(price)
+                    }
+                }
             }
         }
     }
